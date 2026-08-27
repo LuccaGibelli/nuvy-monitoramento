@@ -1,44 +1,45 @@
-# Nuvy Pulse
+# Nuvy Legal Radar
 
-Central de inteligência para monitoramento, qualificação e priorização de oportunidades jurídicas e editais.
+Plataforma personalizada para monitoramento inteligente de oportunidades jurídicas.
 
-## Prioridade atual
+## Escopo da proposta implementado no produto
 
-A primeira entrega é focada no Radar de Editais para sociedades de advogados, com oportunidades de valor igual ou superior a R$ 300.000, score de aderência, filtros, prazos, favoritos e análise inteligente.
+- Radar de oportunidades jurídicas com corte mínimo de R$ 300.000
+- Dashboard executivo com contratante, objeto, valor, publicação, prazo e origem
+- Filtros, score de aderência, favoritos/status e priorização
+- Fila de pendências com prazo, urgência, responsável e follow-up
+- Indicadores de desempenho por colaborador preparados para dados de integração
+- Módulo separado de consulta processual por CPF, preparado para Escavador
+- Estrutura Supabase multi-organização com RLS
+- Edge Function inicial para coleta PNCP
+
+## Dependências externas
+
+A coleta real depende das fontes validadas. O Escavador depende de credenciais/API e custos aprovados pelo contratante. Indicadores reais por colaborador dependem de uma integração que forneça responsável e horários das interações.
+
+## Fora do escopo atual
+
+- Gestão/visualização de conversas de WhatsApp
+- SLA bidirecional completo de atendimento
+- Relatórios avançados além dos indicadores contratados
+- APIs comerciais, bases privadas e serviços premium sem aprovação
 
 ## Stack
 
-- React
-- TypeScript
-- Vite
-- Lucide Icons
-- Supabase planejado para banco, autenticação, RLS, Edge Functions e jobs
+React + TypeScript + Vite + Supabase.
 
-## Rodar localmente
+## Local
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Build
+## Produção
 
-```bash
-npm run build
-```
-
-## Roadmap
-
-1. Interface e domínio do Radar de Editais
-2. Supabase e autenticação
-3. Persistência das oportunidades
-4. Conector PNCP / fontes oficiais
-5. Deduplicação e score
-6. Análise por IA
-7. Notificações e relatórios
-8. Integração Escavador para inteligência processual
-9. Módulo de atendimento em fase posterior
-
-## Segurança
-
-Tokens de APIs nunca devem ser enviados para o frontend. Integrações como Escavador deverão usar backend/Edge Functions e secrets de ambiente.
+1. Criar/conectar projeto Supabase.
+2. Executar `supabase/schema.sql`.
+3. Configurar secrets do Supabase e fontes externas.
+4. Deploy da função `pncp-sync`.
+5. Configurar `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
+6. Validar fontes iniciais e credenciais do Escavador antes de ativar consultas reais.
