@@ -1,0 +1,15 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Database, RefreshCw, Wifi, WifiOff } from 'lucide-react'
+import { supabase } from './lib/supabase'
+
+type Health={source:string;status:string;last_scanned:number;last_qualified:number;last_error:string|null;last_run_at:string|null}
+
+export default function IngestionStatus(){
+ const[raw,setRaw]=useState(0);const[qualified,setQualified]=useState(0);const[health,setHealth]=useState<Health[]>([]);const[syncing,setSyncing]=useState(false);const[orgId,setOrgId]=useState<string|null>(null);const[message,setMessage]=useState('')
+ useEffect(()=>{let mounted=true;async function init(){const{data:{session}}=await supabase.auth.getSession();if(!session||!mounted)return;const{data:m}=await supabase.from('organization_members').select('organization_id').limit(1);const org=m?.[0]?.organization_id;if(!org)return;setOrgId(org);const counts=await refresh(org);if(counts.raw===0&&sessionStorage.getItem('nuvy-first-sync')!=='1'){sessionStorage.setItem('nuvy-first-sync','1');void run(org,true)}}void init();const timer=setInterval(()=>{if(orgId)void refresh(orgId)},30000);return()=>{mounted=false;clearInterval(timer)}},[orgId])
+ async function refresh(org:string){const[{count:rawCount},{count:qCount},{data:h}]=await Promise.all([supabase.from('raw_notices').select('*',{count:'exact',head:true}),supabase.from('opportunities').select('*',{count:'exact',head:true}).eq('organization_id',org),supabase.from('source_health').select('source,status,last_scanned,last_qualified,last_error,last_run_at').order('source')]);const r=rawCount??0,q=qCount??0;setRaw(r);setQualified(q);setHealth((h??[]) as Health[]);return{raw:r,qualified:q}}
+ async function run(org=orgId,automatic=false){if(!org||syncing)return;setSyncing(true);setMessage(automatic?'Iniciando primeira coleta nacional...':'Atualizando fontes...');const{data,error}=await supabase.functions.invoke('sync-all',{body:{organization_id:org,days_back:30,days_ahead:0,max_pages:50,include_legacy:true}});if(error)setMessage(`Coleta falhou: ${error.message}`);else{const s=data?.summary;setMessage(`Coleta: ${Number(s?.scanned??0).toLocaleString('pt-BR')} lidos, ${Number(s?.qualified??0).toLocaleString('pt-BR')} jurídicos.`);await refresh(org)}setSyncing(false)}
+ const online=useMemo(()=>health.filter(h=>h.status==='online').length,[health]);const degraded=useMemo(()=>health.filter(h=>h.status==='degraded'||h.status==='offline').length,[health]);
+ if(!orgId)return null
+ return <div className="ingestion-hud"><div className="ingestion-main"><Database size={16}/><strong>{raw.toLocaleString('pt-BR')}</strong><span>capturadas brutas</span><b>{qualified.toLocaleString('pt-BR')}</b><span>jurídicas qualificadas</span></div><div className="ingestion-health">{online>0?<Wifi size={14}/>:<WifiOff size={14}/>}<span>{online} online</span>{degraded>0&&<span className="ingestion-warn">{degraded} com alerta</span>}</div><button onClick={()=>void run()} disabled={syncing} title="Atualizar fontes"><RefreshCw size={14} className={syncing?'spin':''}/></button>{message&&<small>{message}</small>}</div>
+}
