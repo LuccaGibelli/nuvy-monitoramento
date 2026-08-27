@@ -23,12 +23,12 @@ function pick(row: any, mapping: Record<string, string>, field: string) {
 
 function decodeXml(value: string) {
   return value
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
     .replaceAll("&amp;", "&")
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
     .replaceAll("&quot;", '"')
     .replaceAll("&#39;", "'")
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
     .trim();
 }
 
@@ -40,15 +40,26 @@ function xmlTag(block: string, names: string[]) {
   return null;
 }
 
+function xmlLink(block: string) {
+  const atom = block.match(/<link[^>]+href=["']([^"']+)["'][^>]*\/?\s*>/i);
+  return atom?.[1] ?? xmlTag(block, ["link", "guid", "id"]);
+}
+
 function parseRss(xml: string) {
   const blocks = [...xml.matchAll(/<(item|entry)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi)].map((match) => match[2]);
   return blocks.map((block) => ({
     title: xmlTag(block, ["title"]),
     description: xmlTag(block, ["description", "summary", "content"]),
-    link: xmlTag(block, ["link", "guid", "id"]),
+    link: xmlLink(block),
     published: xmlTag(block, ["pubDate", "published", "updated"]),
     raw: block,
   }));
+}
+
+function parseBrl(value: string) {
+  const cleaned = value.replace(/[^0-9.,]/g, "").replaceAll(".", "").replace(",", ".");
+  const number = Number(cleaned);
+  return Number.isFinite(number) ? number : null;
 }
 
 async function fetchConnector(connector: Connector) {
@@ -102,14 +113,9 @@ function mapJson(row: any, connector: Connector, organizationId: string) {
 
 function mapRss(row: any, connector: Connector, organizationId: string) {
   const text = `${row.title ?? ""} ${row.description ?? ""}`;
-  const valueMatches = text.match(/R\$\s?([\d\.]+(?:,\d{2})?)/g) ?? [];
-  let value: number | null = null;
-  if (valueMatches.length) {
-    const parsed = valueMatches
-      .map((item: string) => Number(item.replace(/[^0-9,]/g, "").replace(",", ".")))
-      .filter((item: number) => Number.isFinite(item));
-    value = parsed.length ? Math.max(...parsed) : null;
-  }
+  const valueMatches = text.match(/R\$\s?[\d\.]+(?:,\d{2})?/g) ?? [];
+  const parsed = valueMatches.map(parseBrl).filter((item): item is number => item !== null);
+  const value = parsed.length ? Math.max(...parsed) : null;
   if (!shouldKeepOpportunity(text, value)) return null;
 
   return {
