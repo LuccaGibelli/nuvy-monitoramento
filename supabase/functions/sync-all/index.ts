@@ -16,16 +16,18 @@ Deno.serve(async(req:Request)=>{
     if(!body.organization_id) return json({error:"organization_id is required"},400);
     const supabaseUrl=Deno.env.get("SUPABASE_URL"),serviceRoleKey=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if(!supabaseUrl||!serviceRoleKey) throw new Error("Missing Supabase server secrets");
-    const shared={organization_id:body.organization_id,days_back:body.days_back??30,max_pages:body.max_pages??150};
-    const results=await Promise.all([
-      invoke(supabaseUrl,serviceRoleKey,"pncp-sync",{...shared,days_ahead:body.days_ahead??120}),
+    const shared={organization_id:body.organization_id,days_back:body.days_back??45,max_pages:body.max_pages??80};
+    const baseResults=await Promise.all([
+      invoke(supabaseUrl,serviceRoleKey,"pncp-sync",{...shared,days_ahead:body.days_ahead??150}),
       invoke(supabaseUrl,serviceRoleKey,"compras-sync",{...shared,include_legacy:body.include_legacy!==false}),
       invoke(supabaseUrl,serviceRoleKey,"source-sync",{organization_id:body.organization_id,connector_ids:body.connector_ids}),
     ]);
+    const extended=await invoke(supabaseUrl,serviceRoleKey,"compras-extended-sync",{organization_id:body.organization_id,days_back:body.days_back??45,max_pages:body.extended_max_pages??30,enrich_limit:body.enrich_limit??250});
+    const results=[...baseResults,extended];
     const scanned=results.reduce((n,r)=>n+Number(r.payload?.scanned??0),0);
     const raw=results.reduce((n,r)=>n+Number(r.payload?.raw_upserted??0),0);
     const qualified=results.reduce((n,r)=>n+Number(r.payload?.qualified??r.payload?.selected??0),0);
     const ok=results.every(r=>r.ok);
-    return json({ok,summary:{scanned,raw_upserted:raw,qualified},results},ok?200:207);
+    return json({ok,summary:{scanned,raw_upserted:raw,qualified,modules:results.length},results},ok?200:207);
   }catch(error){return json({error:error instanceof Error?error.message:String(error)},500);}
 });
