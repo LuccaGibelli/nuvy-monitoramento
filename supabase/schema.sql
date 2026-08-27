@@ -1,23 +1,164 @@
 create extension if not exists pgcrypto;
 
-create table if not exists public.organizations (id uuid primary key default gen_random_uuid(), name text not null, created_at timestamptz not null default now(), updated_at timestamptz not null default now());
-create table if not exists public.organization_members (organization_id uuid not null references public.organizations(id) on delete cascade, user_id uuid not null references auth.users(id) on delete cascade, role text not null default 'analyst' check (role in ('admin','manager','analyst')), created_at timestamptz not null default now(), primary key (organization_id,user_id));
-create table if not exists public.opportunities (id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade, external_id text not null, source text not null default 'PNCP', source_url text, title text not null, buyer_name text, buyer_cnpj text, city text, state text, sphere text, process_number text, modality text, object_text text, estimated_value numeric(18,2), published_at timestamptz, deadline_at timestamptz, status text not null default 'Novo', score integer not null default 0 check(score between 0 and 100), ai_summary text, raw_payload jsonb, is_favorite boolean not null default false, collected_at timestamptz not null default now(), created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique(organization_id,source,external_id));
-create table if not exists public.pending_items (id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade, client_name text not null, request_text text not null, owner_user_id uuid references auth.users(id), owner_name text, due_at timestamptz not null, urgency text not null default 'Normal' check(urgency in ('Normal','Alta','Crítica')), status text not null default 'Aguardando cliente' check(status in ('Aguardando cliente','Urgente','Concluído')), created_at timestamptz not null default now(), updated_at timestamptz not null default now());
-create table if not exists public.response_metrics (id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade, collaborator_user_id uuid references auth.users(id), collaborator_name text not null, response_minutes numeric(10,2) not null, interaction_at timestamptz not null, source text, created_at timestamptz not null default now());
-create table if not exists public.process_queries (id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade, requested_by uuid references auth.users(id), cpf_hash text not null, provider text not null default 'Escavador', provider_payload jsonb, summary text, created_at timestamptz not null default now());
+create table if not exists public.organizations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
 
-create index if not exists opportunities_value_idx on public.opportunities(estimated_value desc); create index if not exists opportunities_deadline_idx on public.opportunities(deadline_at); create index if not exists pending_due_idx on public.pending_items(due_at,status); create index if not exists metrics_collaborator_idx on public.response_metrics(collaborator_user_id,interaction_at desc);
+create table if not exists public.organization_members (
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null default 'analyst' check (role in ('admin','manager','analyst')),
+  created_at timestamptz not null default now(),
+  primary key (organization_id,user_id)
+);
 
-alter table public.organizations enable row level security; alter table public.organization_members enable row level security; alter table public.opportunities enable row level security; alter table public.pending_items enable row level security; alter table public.response_metrics enable row level security; alter table public.process_queries enable row level security;
+create table if not exists public.opportunities (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  external_id text not null,
+  source text not null default 'PNCP',
+  source_url text,
+  title text not null,
+  buyer_name text,
+  buyer_cnpj text,
+  city text,
+  state text,
+  sphere text,
+  process_number text,
+  modality text,
+  object_text text,
+  estimated_value numeric(18,2),
+  published_at timestamptz,
+  deadline_at timestamptz,
+  status text not null default 'Novo',
+  score integer not null default 0 check(score between 0 and 100),
+  ai_summary text,
+  raw_payload jsonb,
+  is_favorite boolean not null default false,
+  collected_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(organization_id,source,external_id)
+);
 
-create or replace function public.is_org_member(org uuid) returns boolean language sql stable security definer set search_path=public as $$ select exists(select 1 from public.organization_members m where m.organization_id=org and m.user_id=auth.uid()) $$;
+create table if not exists public.pending_items (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_name text not null,
+  request_text text not null,
+  owner_user_id uuid references auth.users(id),
+  owner_name text,
+  due_at timestamptz not null,
+  urgency text not null default 'Normal' check(urgency in ('Normal','Alta','Crítica')),
+  status text not null default 'Aguardando cliente' check(status in ('Aguardando cliente','Urgente','Concluído')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.response_metrics (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  collaborator_user_id uuid references auth.users(id),
+  collaborator_name text not null,
+  response_minutes numeric(10,2) not null,
+  interaction_at timestamptz not null,
+  source text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.process_queries (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  requested_by uuid references auth.users(id),
+  cpf_hash text not null,
+  provider text not null default 'Escavador',
+  provider_payload jsonb,
+  summary text,
+  created_at timestamptz not null default now()
+);
+
+-- Conectores adicionais para fontes estaduais, municipais, diarios oficiais
+-- e fontes privadas publicamente acessiveis/tecnicamente integraveis.
+-- organization_id null = conector compartilhado entre clientes.
+create table if not exists public.source_connectors (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid references public.organizations(id) on delete cascade,
+  name text not null,
+  category text not null check(category in ('state_portal','municipal_portal','official_diary','private_public_source')),
+  url text not null,
+  kind text not null default 'json' check(kind in ('json','rss')),
+  config jsonb not null default '{}'::jsonb,
+  enabled boolean not null default true,
+  last_success_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(organization_id,name,url)
+);
+
+create index if not exists opportunities_value_idx on public.opportunities(estimated_value desc);
+create index if not exists opportunities_deadline_idx on public.opportunities(deadline_at);
+create index if not exists opportunities_source_idx on public.opportunities(source,collected_at desc);
+create index if not exists opportunities_geo_idx on public.opportunities(state,city);
+create index if not exists pending_due_idx on public.pending_items(due_at,status);
+create index if not exists metrics_collaborator_idx on public.response_metrics(collaborator_user_id,interaction_at desc);
+create index if not exists source_connectors_enabled_idx on public.source_connectors(enabled,category);
+
+alter table public.organizations enable row level security;
+alter table public.organization_members enable row level security;
+alter table public.opportunities enable row level security;
+alter table public.pending_items enable row level security;
+alter table public.response_metrics enable row level security;
+alter table public.process_queries enable row level security;
+alter table public.source_connectors enable row level security;
+
+create or replace function public.is_org_member(org uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path=public
+as $$
+  select exists(
+    select 1 from public.organization_members m
+    where m.organization_id=org and m.user_id=auth.uid()
+  )
+$$;
 
 do $$ begin
  create policy "org read organizations" on public.organizations for select to authenticated using(public.is_org_member(id));
 exception when duplicate_object then null; end $$;
-do $$ begin create policy "own membership" on public.organization_members for select to authenticated using(user_id=auth.uid()); exception when duplicate_object then null; end $$;
-do $$ begin create policy "org opportunities" on public.opportunities for all to authenticated using(public.is_org_member(organization_id)) with check(public.is_org_member(organization_id)); exception when duplicate_object then null; end $$;
-do $$ begin create policy "org pending" on public.pending_items for all to authenticated using(public.is_org_member(organization_id)) with check(public.is_org_member(organization_id)); exception when duplicate_object then null; end $$;
-do $$ begin create policy "org metrics" on public.response_metrics for select to authenticated using(public.is_org_member(organization_id)); exception when duplicate_object then null; end $$;
-do $$ begin create policy "org process queries" on public.process_queries for select to authenticated using(public.is_org_member(organization_id)); exception when duplicate_object then null; end $$;
+
+do $$ begin
+ create policy "own membership" on public.organization_members for select to authenticated using(user_id=auth.uid());
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+ create policy "org opportunities" on public.opportunities for all to authenticated using(public.is_org_member(organization_id)) with check(public.is_org_member(organization_id));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+ create policy "org pending" on public.pending_items for all to authenticated using(public.is_org_member(organization_id)) with check(public.is_org_member(organization_id));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+ create policy "org metrics" on public.response_metrics for select to authenticated using(public.is_org_member(organization_id));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+ create policy "org process queries" on public.process_queries for select to authenticated using(public.is_org_member(organization_id));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+ create policy "org source connectors read" on public.source_connectors for select to authenticated
+ using(organization_id is null or public.is_org_member(organization_id));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+ create policy "org source connectors manage" on public.source_connectors for all to authenticated
+ using(organization_id is not null and public.is_org_member(organization_id))
+ with check(organization_id is not null and public.is_org_member(organization_id));
+exception when duplicate_object then null; end $$;
